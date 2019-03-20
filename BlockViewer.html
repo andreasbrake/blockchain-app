@@ -1,0 +1,307 @@
+<html>
+  <head>
+      <script src="https://cdn.jsdelivr.net/npm/vue@2.5.16/dist/vue.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/web3@0.20.1/dist/web3.min.js"></script>
+      <script src="https://cdn.jsdelivr.net/npm/abi-decoder@1.1.0/dist/abi-decoder.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <div>
+        <div id="header">
+          <div style="flex:2">
+            <h2>
+              Quorum Node Viewer
+            </h2>
+          </div>
+          <div>
+            <span>http://</span>
+            <input type="text" v-model="host" style="height:24px;width:110px;" />
+            <span>:</span>
+            <input type="text" v-model="port" style="height:24px;margin-right:9px;width:50px" />
+            <button v-on:click="setProvider" style="height:24px;width:75px">Connect</button>
+          </div>
+        </div>
+        <div id="content">
+          <div class="card">
+            <span class="label">Choose Block # (max {{maxBlocks}})</span>
+            <input type="text" v-model="blockNumber" style="height:24px;margin-left:9px;width:70px;" />
+          </div>
+          <block-details v-if="blockNumber !== null" v-on:viewtx="viewTransaction($event)" :blocknumber="blockNumber" :web3="web3"></block-details>
+          <transaction-details v-if="txid !== null" :txid="txid" :web3="web3"></block-transaction>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const Web3 = require('web3');
+
+      const abi = [{"constant":true,"inputs":[],"name":"storedData","outputs":[{"name":"","type":"uint256"}],"payable":false,"type":"function"},{"constant":false,"inputs":[{"name":"x","type":"uint256"}],"name":"set","outputs":[],"payable":false,"type":"function"},{"constant":true,"inputs":[],"name":"get","outputs":[{"name":"retVal","type":"uint256"}],"payable":false,"type":"function"},{"inputs":[{"name":"initVal","type":"uint256"}],"payable":false,"type":"constructor"}];
+      abiDecoder.addABI(abi)
+
+      Vue.component('block-details', {
+        template: `
+          <div v-if="details !== null" class="card">
+            <h3>Block #{{blocknumber}}</h3>
+            <div class="card-detail">
+              <span class="label">Timestamp:</span>
+              <span>{{convertTimestamp(details.timestamp)}}</span>
+            </div>
+            <div class="card-detail">
+              <span class="label">Hash:</span>
+              <span>{{details.hash}}</span>
+            </div>
+            <div class="card-detail">
+              <span class="label">Parent Hash:</span>
+              <span>{{details.parentHash}}</span>
+            </div>
+            <div class="label">Blob</div>
+            <div style="margin: 18px">
+              <pre v-html="syntaxHighlight(details)"></pre>
+            </div>
+            <div>
+              <div class="label">View Transaction:</div>
+              <button 
+                v-for="tx in details.transactions"
+                style="margin-top:9px"
+                v-on:click="viewTransaction(tx)">
+                {{tx}}
+              </button>
+            </div>
+          </div>`,
+        props: ['blocknumber', 'web3'],
+        data: function() {
+          return {
+            details: null
+          }
+        },
+        mounted () {
+          if (this.web3) {
+            this.setDetails()
+          }
+        },
+        watch: {
+          blocknumber: function(newNum, oldNum) {
+            if (this.web3 && newNum) {
+              this.setDetails()
+            }
+          },
+          web3: function(newWeb, oldWeb) {
+            if (newWeb) {
+              this.details = newWeb.eth.getBlock(this.blocknumber)
+            }
+          }
+        },
+        methods: {
+          setDetails() {
+            this.details = this.web3.eth.getBlock(this.blocknumber)
+            if(this.details.transactions.length === 1) {
+              this.$emit('viewtx', this.details.transactions[0])
+            }
+            else {
+              this.$emit('viewtx', null)
+            }
+          },
+          viewTransaction: function(tx) {
+            this.$emit('viewtx', tx)
+          },
+          convertTimestamp: function(epoch) {
+            return new Date(epoch / 1000000).toString()
+          },
+          syntaxHighlight: function (json) {
+            if (typeof json != 'string') {
+              json = JSON.stringify(json, undefined, 2);
+            }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+              var cls = 'number';
+              if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                  cls = 'key';
+                } else {
+                  cls = 'string';
+                }
+              } else if (/true|false/.test(match)) {
+                cls = 'boolean';
+              } else if (/null/.test(match)) {
+                cls = 'null';
+              }
+              return '<span class="' + cls + '">' + match + '</span>';
+            });
+          }
+        }
+      })
+
+      Vue.component('transaction-details', {
+        template: `
+          <div v-if="details !== null" class="card">
+            <h3>Transaction {{txid}}</h3>
+            <div class="label">Blob</div>
+            <div style="margin: 18px">
+              <pre v-html="syntaxHighlight(details)"></pre>
+            </div>
+            <div v-if="receipt !== null" class="label">Receipt</div>
+            <div v-if="receipt !== null" style="margin: 18px">
+              <pre v-html="syntaxHighlight(receipt)"></pre>
+            </div>
+            <div v-if="func">
+              <span class="label">Function:</span>
+              <span>{{func.name}}</span>
+              <div v-for="f in func.params">
+                <pre v-html="syntaxHighlight(f)"></pre>
+              </div>
+            </div>
+            <div v-if="!details.to">
+              <span class="label">Contract declaration</span>
+            </div>
+          </div>`,
+        props: ['txid', 'web3'],
+        data: function() {
+          return {
+            details: null,
+            receipt: null,
+            func: undefined
+          }
+        },
+        mounted () {
+          if (this.web3) {
+              this.getDetails()
+          }
+        },
+        watch: {
+          txid: function(newNum, oldNum) {
+            if (this.web3 && newNum) {
+              this.getDetails()
+            }
+          },
+          web3: function(newWeb, oldWeb) {
+            if (this.web3) {
+              this.getDetails()
+            }
+          }
+        },
+        methods: {
+          getDetails: function() {
+            this.details = this.web3.eth.getTransaction(this.txid)
+            this.receipt = this.web3.eth.getTransactionReceipt(this.txid)
+            this.func = abiDecoder.decodeMethod(this.details.input)
+            
+            let filter = this.web3.eth.filter('latest')
+          },
+          update: function () {
+            var receipt = this.web3.eth.getTransactionReceipt(this.txid)
+            var contract = this.web3.eth.contract(abi).at(receipt.contractAddress)
+            contract.set.sendTransaction(10, {from: this.web3.eth.accounts[0]})
+          },
+          convertTimestamp: function(epoch) {
+            var d = new Date(0); // The 0 there is the key, which sets the date to the epoch
+            d.setUTCMilliseconds(epoch / 1000);
+            return d.toString()
+          },
+          syntaxHighlight: function (json) {
+            if (typeof json != 'string') {
+              json = JSON.stringify(json, undefined, 2);
+            }
+            json = json.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            return json.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, function (match) {
+              var cls = 'number';
+              if (/^"/.test(match)) {
+                if (/:$/.test(match)) {
+                  cls = 'key';
+                } else {
+                  cls = 'string';
+                }
+              } else if (/true|false/.test(match)) {
+                cls = 'boolean';
+              } else if (/null/.test(match)) {
+                cls = 'null';
+              }
+              return '<span class="' + cls + '">' + match + '</span>';
+            });
+          }
+        }
+      })
+
+      var app = new Vue({
+        el: '#app',
+        data: {
+          host: '',
+          port: 22000,
+          web3: null,
+          blockNumber: 1,
+          maxBlocks: 0,
+          txid: null
+        },
+        methods: {
+          setProvider () {
+            this.web3 = new Web3(new Web3.providers.HttpProvider(`http://${this.host}:${this.port}`));
+            this.maxBlocks = this.web3.eth.blockNumber
+            console.log('web3', this.web3.eth.accounts)
+          },
+          viewTransaction: function (tx) {
+            this.txid = tx
+          }
+        },
+        mounted () {
+          this.setProvider()
+        }
+      })
+    </script>
+
+    <style>
+      body {
+        margin: 0px;
+        font-family: 'Trebuchet MS', 'Lucida Sans Unicode', 'Lucida Grande', 'Lucida Sans', Arial, sans-serif;
+        color: #303030;
+
+        background:
+          radial-gradient(black 15%, transparent 16%) 0 0,
+          radial-gradient(black 15%, transparent 16%) 8px 8px,
+          radial-gradient(rgba(255,255,255,.1) 15%, transparent 20%) 0 1px,
+          radial-gradient(rgba(255,255,255,.1) 15%, transparent 20%) 8px 9px;
+          background-color:#282828;
+          background-size:16px 16px;
+      }
+      .label {
+        font-weight: bold;
+      }
+
+      #header {
+        height: 40px;
+        padding: 18px;
+        margin-bottom: 18px;
+        background-color: #efefef;
+        box-shadow: 0 4px 2px -2px gray;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+      }
+
+      #content {
+        padding: 18px;
+        display: flex;
+        flex-direction: column;
+      }
+
+      .card {
+        background-color: #efefef;
+        border-radius: 3px;
+        display: inline-block;
+        margin: 1rem;
+        position: relative;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+        padding: 18px;
+      }
+      .card-detail {
+        margin-bottom: 9px;
+      }
+
+      pre {padding: 5px; margin: 5px; }
+      .string { color: green; width: 100%; white-space: normal; word-wrap: break-word; }
+      .number { color: darkorange; }
+      .boolean { color: blue; }
+      .null { color: magenta; }
+      .key { color: red; }
+
+    </style>
+  </body>
+</html>
