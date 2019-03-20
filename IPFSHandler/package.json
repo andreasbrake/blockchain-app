@@ -1,0 +1,16 @@
+{
+  "name": "ipfshandler",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "amqplib": "^0.5.2",
+    "ipfs-api": "^22.2.4",
+    "uuid": "^3.3.2"
+  }
+}
